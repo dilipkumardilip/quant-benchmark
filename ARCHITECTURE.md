@@ -1,4 +1,4 @@
-# Project Architecture (v1.1.0)
+# Project Architecture (v1.1.1)
 
 This project is a benchmarking suite for comparing quantization methods in Large Language Models (LLMs).
 

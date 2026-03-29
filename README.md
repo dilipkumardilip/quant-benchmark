@@ -1,4 +1,4 @@
-# Model Quantization & Optimization Benchmark (v1.1.0)
+# Model Quantization & Optimization Benchmark (v1.1.1)
 
 A comprehensive tool for benchmarking Large Language Models (LLMs) across different quantization methods, focusing on performance, memory usage, and accuracy.
 

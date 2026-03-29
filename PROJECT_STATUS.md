@@ -1,4 +1,4 @@
-# Project Status (v1.1.0)
+# Project Status (v1.1.1)
 
 As of version 1.1.0, the core functionality for LLM quantization benchmarking is fully implemented with automated comparison workflows.
 
