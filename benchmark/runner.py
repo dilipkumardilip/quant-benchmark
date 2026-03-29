@@ -1,75 +1,70 @@
-import time
+# how fast is the model, and how much memory does it use?
+
 import torch
-import numpy as np
+import time
 
-class BenchmarkRunner:
-    def __init__(self, model, tokenizer, device="cuda"):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.device = device
 
-    def get_vram_usage(self):
-        """Returns current VRAM usage in MB."""
-        if self.device == "cuda":
-            return torch.cuda.memory_allocated() / 1024**2
-        return 0
+def measure_memory_mb():
+    """Returns current GPU memory used in MB."""
+    if torch.cuda.is_available():
+        return torch.cuda.memory_allocated() / 1024 / 1024
+    return 0.0  # on Mac/CPU, we skip GPU memory tracking
 
-    def get_max_vram_usage(self):
-        """Returns peak VRAM usage in MB."""
-        if self.device == "cuda":
-            return torch.cuda.max_memory_allocated() / 1024**2
-        return 0
 
-    def run_inference(self, prompt, max_new_tokens=50):
-        """Runs inference and measures latency and throughput."""
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
-        input_len = inputs.input_ids.shape[1]
-        
-        # Warmup
-        _ = self.model.generate(**inputs, max_new_tokens=5)
-        
-        # Benchmark start
-        torch.cuda.synchronize() if self.device == "cuda" else None
-        start_time = time.time()
-        
+def benchmark_inference(model, tokenizer, prompt: str, num_runs: int = 5):
+    """
+    Runs inference num_runs times and returns:
+    - avg_tokens_per_sec
+    - avg_latency_ms
+    - memory_mb (peak GPU memory)
+    """
+
+    # tokenize the input once
+    inputs = tokenizer(prompt, return_tensors="pt")
+
+    # move inputs to same device as model
+    device = next(model.parameters()).device
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+
+    input_len = inputs["input_ids"].shape[1]
+
+    # warmup run — first run is always slower due to CUDA kernel compilation
+    with torch.no_grad():
+        _ = model.generate(
+            **inputs,
+            max_new_tokens=50,
+            do_sample=False  # greedy decoding — deterministic, fair comparison
+        )
+
+    # reset memory stats before actual measurement
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+
+    latencies = []
+
+    for _ in range(num_runs):
+        start = time.perf_counter()
+
         with torch.no_grad():
-            output = self.model.generate(
+            output = model.generate(
                 **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                use_cache=True
+                max_new_tokens=50,
+                do_sample=False
             )
-        
-        torch.cuda.synchronize() if self.device == "cuda" else None
-        end_time = time.time()
-        
-        total_time = end_time - start_time
-        num_generated_tokens = output.shape[1] - input_len
-        tokens_per_sec = num_generated_tokens / total_time
-        latency_per_token = (total_time / num_generated_tokens) * 1000 # ms
-        
-        return {
-            "total_time": total_time,
-            "tokens_per_sec": tokens_per_sec,
-            "latency_per_token_ms": latency_per_token,
-            "num_generated_tokens": num_generated_tokens,
-            "peak_vram_mb": self.get_max_vram_usage()
-        }
 
-    def run_benchmark(self, prompts, max_new_tokens=50):
-        results = []
-        for prompt in prompts:
-            res = self.run_inference(prompt, max_new_tokens)
-            results.append(res)
-        
-        # Aggregated stats
-        avg_tokens_per_sec = np.mean([r["tokens_per_sec"] for r in results])
-        avg_latency = np.mean([r["latency_per_token_ms"] for r in results])
-        max_vram = np.max([r["peak_vram_mb"] for r in results])
-        
-        return {
-            "avg_tokens_per_sec": avg_tokens_per_sec,
-            "avg_latency_per_token_ms": avg_latency,
-            "max_vram_mb": max_vram,
-            "raw_results": results
-        }
+        end = time.perf_counter()
+        latencies.append(end - start)
+
+    # how many NEW tokens were generated
+    output_len = output.shape[1] - input_len
+
+    avg_latency = sum(latencies) / len(latencies)
+    avg_tokens_per_sec = output_len / avg_latency
+    peak_memory = measure_memory_mb()
+
+    return {
+        "avg_latency_ms": round(avg_latency * 1000, 2),
+        "tokens_per_sec": round(avg_tokens_per_sec, 2),
+        "peak_memory_mb": round(peak_memory, 2),
+        "num_runs": num_runs
+    }

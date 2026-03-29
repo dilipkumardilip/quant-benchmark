@@ -1,46 +1,51 @@
+# This measures perplexity — the standard way to check if quantization hurt the model's language understanding.
+
 import torch
-from tqdm import tqdm
+from torch.nn import CrossEntropyLoss
 
-def calculate_perplexity(model, tokenizer, dataset_text, device="cuda"):
+# A small fixed set of sentences to evaluate on
+# In a real benchmark you'd use WikiText-2 dataset
+# For our project this is enough to show relative accuracy
+EVAL_TEXTS = [
+    "The capital of France is Paris and it is known for the Eiffel Tower.",
+    "Machine learning models are trained using gradient descent optimization.",
+    "The quick brown fox jumps over the lazy dog near the river bank.",
+    "Quantum computing uses qubits which can exist in superposition states.",
+    "The human brain contains approximately 86 billion neurons connected by synapses.",
+]
+
+
+def compute_perplexity(model, tokenizer, texts: list = None):
     """
-    Calculate perplexity on a given text string or list of strings.
-    
-    Args:
-        model: Loaded LLM.
-        tokenizer: Loaded tokenizer.
-        dataset_text: String or list of strings to evaluate.
-        device: Device to run evaluation on.
+    Perplexity = how surprised the model is by the text.
+    Lower = better. fp16 baseline will have lowest perplexity.
+    int4 will be slightly higher — that's the accuracy cost.
     """
-    if isinstance(dataset_text, list):
-        dataset_text = " ".join(dataset_text)
-    
-    encodings = tokenizer(dataset_text, return_tensors="pt")
-    
-    max_length = model.config.max_position_embeddings
-    stride = 512
-    seq_len = encodings.input_ids.size(1)
+    if texts is None:
+        texts = EVAL_TEXTS
 
-    nlls = []
-    prev_end_loc = 0
-    for begin_loc in tqdm(range(0, seq_len, stride)):
-        end_loc = min(begin_loc + max_length, seq_len)
-        trg_len = end_loc - prev_end_loc  # how many tokens we want to predict
-        input_ids = encodings.input_ids[:, begin_loc:end_loc].to(device)
-        target_ids = input_ids.clone()
-        target_ids[:, :-trg_len] = -100
+    device = next(model.parameters()).device
+    loss_fn = CrossEntropyLoss()
+    total_loss = 0.0
+    total_tokens = 0
 
-        with torch.no_grad():
-            outputs = model(input_ids, labels=target_ids)
+    model.eval()
+    with torch.no_grad():
+        for text in texts:
+            inputs = tokenizer(text, return_tensors="pt")
+            inputs = {k: v.to(device) for k, v in inputs.items()}
 
-            # loss is calculated using CrossEntropyLoss which averages over valid labels
-            # NLL = loss * trg_len
-            neg_log_likelihood = outputs.loss * trg_len
+            input_ids = inputs["input_ids"]
 
-        nlls.append(neg_log_likelihood)
+            outputs = model(**inputs, labels=input_ids)
 
-        prev_end_loc = end_loc
-        if end_loc == seq_len:
-            break
+            # loss is already averaged over tokens by HuggingFace
+            # we weight it by number of tokens for a proper average
+            n_tokens = input_ids.shape[1]
+            total_loss += outputs.loss.item() * n_tokens
+            total_tokens += n_tokens
 
-    ppl = torch.exp(torch.stack(nlls).sum() / end_loc)
-    return ppl.item()
+    avg_loss = total_loss / total_tokens
+    perplexity = torch.exp(torch.tensor(avg_loss)).item()
+
+    return round(perplexity, 4)

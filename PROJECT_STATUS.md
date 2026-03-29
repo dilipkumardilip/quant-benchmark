@@ -1,17 +1,18 @@
-# Project Status (v1.0.0)
+# Project Status (v1.1.0)
 
-As of version 1.0.0, the core functionality for LLM quantization benchmarking is fully implemented.
+As of version 1.1.0, the core functionality for LLM quantization benchmarking is fully implemented with automated comparison workflows.
 
-Status: **Production Ready**
+Status: **Production Ready** 
 
 ## Current Capabilities
-- Supports Hugging Face Transformers models.
-- Support for BitsAndBytes (Int8/Int4).
-- Support for GPTQ and AWQ quantized models.
-- GPU performance tracking.
+- Supports Hugging Face Transformers models with automated comparison.
+- Full precision comparison for `fp16`, `int8`, and `int4`.
+- Integrated perplexity calculation for accuracy measurement.
+- Explicit memory management between benchmark runs.
+- **Improved Workflow**: Unified `main.py` script for end-to-end benchmarking and summary generation.
 
 ## Upcoming Features
-- [ ] Support for GGUF/llama.cpp models.
 - [ ] Integration with `lm-evaluation-harness`.
-- [ ] Comparison visualization (plotting results).
 - [ ] Support for Apple Silicon (MPS).
+- [ ] Automated visualization of performance vs. accuracy trade-offs.
+- [ ] Cloud-based performance logging.
